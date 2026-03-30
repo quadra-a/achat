@@ -124,7 +124,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Start daemon and register on LAN
-    Up { name: String },
+    Up { name: Option<String> },
     /// Stop daemon
     Down,
     /// Rebind identity to a running daemon
@@ -181,7 +181,13 @@ fn main() -> ExitCode {
 fn run(cli: &Cli) -> Result<()> {
     // Commands that don't require identity resolution.
     match &cli.command {
-        Commands::Up { name } => return cmd_up(name),
+        Commands::Up { name } => {
+            let name = name
+                .as_deref()
+                .or(cli.identity.as_deref())
+                .ok_or_else(|| anyhow::anyhow!("agent name required.\n  use: achat up <name>\n  or:  achat --as <name> up"))?;
+            return cmd_up(name);
+        }
         Commands::Attach { name } => return cmd_attach(name),
         Commands::HelpJson => {
             println!(
