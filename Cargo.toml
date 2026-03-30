@@ -6,8 +6,10 @@ rust-version = "1.70"
 description = "Minimal LAN agent-to-agent messaging for AI coding assistants"
 license = "Apache-2.0"
 repository = "https://github.com/quadra-a/achat"
+readme = "README.md"
 keywords = ["agent", "messaging", "lan", "cli", "p2p"]
 categories = ["command-line-utilities", "network-programming"]
+exclude = ["skills/"]
 
 [[bin]]
 name = "achat"
