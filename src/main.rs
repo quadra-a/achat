@@ -47,7 +47,7 @@ fn resolve_identity(explicit: Option<&str>, safe: bool) -> Result<String> {
         }
     }
     if safe {
-        bail!("destructive command requires explicit identity.\n  use: achat --as <name> down");
+        bail!("'down' requires explicit identity to avoid killing another agent's daemon.\n  use: achat --as <name> down\n  tip: you can start your own daemon without stopping others: achat up <your-name>");
     }
     let current_file = storage::base_dir().join("current");
     if let Ok(name) = std::fs::read_to_string(&current_file) {
