@@ -32,7 +32,12 @@ fn ipc_call(name: &str, req: &protocol::IpcRequest) -> Result<IpcResponse> {
 }
 
 /// Resolve identity: `--as` > `ACHAT_NAME` env > `~/.achat/current` > auto-detect.
-fn resolve_identity(explicit: Option<&str>) -> Result<String> {
+///
+/// When `safe` is true (for destructive commands like `down`), the `current`
+/// file and auto-detect are skipped — only explicit identity (`--as` flag or
+/// `ACHAT_NAME` env) is accepted. This prevents `achat down` in a random
+/// terminal from accidentally killing a daemon you didn't start.
+fn resolve_identity(explicit: Option<&str>, safe: bool) -> Result<String> {
     if let Some(name) = explicit {
         return Ok(name.to_string());
     }
@@ -40,6 +45,9 @@ fn resolve_identity(explicit: Option<&str>) -> Result<String> {
         if !name.is_empty() {
             return Ok(name);
         }
+    }
+    if safe {
+        bail!("destructive command requires explicit identity.\n  use: achat --as <name> down");
     }
     let current_file = storage::base_dir().join("current");
     if let Ok(name) = std::fs::read_to_string(&current_file) {
@@ -199,7 +207,9 @@ fn run(cli: &Cli) -> Result<()> {
         | Commands::Status => {}
     }
     // Everything else requires a resolved identity.
-    let name = resolve_identity(cli.identity.as_deref())?;
+    // `down` is destructive — refuse auto-detect to prevent killing someone else's daemon.
+    let safe = matches!(cli.command, Commands::Down);
+    let name = resolve_identity(cli.identity.as_deref(), safe)?;
     match &cli.command {
         Commands::Down => cmd_down(&name),
         Commands::Ls => cmd_ls(&name, cli),
