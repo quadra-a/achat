@@ -130,7 +130,7 @@ ensure_writable() {
 
 # ── Argument parsing ────────────────────────────────────────────────────────
 
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 TAG=""
 FORCE="false"
 
@@ -143,7 +143,7 @@ USAGE
 
 OPTIONS
     -h, --help          Show this help
-    --to DIR            Install directory [default: /usr/local/bin]
+    --to DIR            Install directory [default: ~/.local/bin]
     --tag TAG           Specific release tag (e.g. v0.2.0) [default: latest]
     -f, --force         Overwrite existing binary without prompting
 EOF
