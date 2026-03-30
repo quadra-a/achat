@@ -182,10 +182,11 @@ fn run(cli: &Cli) -> Result<()> {
     // Commands that don't require identity resolution.
     match &cli.command {
         Commands::Up { name } => {
-            let name = name
-                .as_deref()
-                .or(cli.identity.as_deref())
-                .ok_or_else(|| anyhow::anyhow!("agent name required.\n  use: achat up <name>\n  or:  achat --as <name> up"))?;
+            let name = name.as_deref().or(cli.identity.as_deref()).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "agent name required.\n  use: achat up <name>\n  or:  achat --as <name> up"
+                )
+            })?;
             return cmd_up(name);
         }
         Commands::Attach { name } => return cmd_attach(name),
