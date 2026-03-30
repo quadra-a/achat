@@ -234,12 +234,35 @@ ${SUDO:-} chmod 755 "${INSTALL_DIR}/achat"
 printf '\n'
 info "${GREEN}achat ${TAG} installed successfully${RESET} to ${INSTALL_DIR}/achat"
 
-# PATH check
+# PATH check — auto-add to shell profile if needed (like Claude Code, Rust, Bun)
 case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
     *)
-        warn "${INSTALL_DIR} is not in your \$PATH"
-        warn "add it with:  export PATH=\"${INSTALL_DIR}:\$PATH\""
+        SHELL_NAME="$(basename "${SHELL:-/bin/sh}")"
+        LINE="export PATH=\"${INSTALL_DIR}:\$PATH\""
+        PROFILE=""
+        case "$SHELL_NAME" in
+            zsh)  PROFILE="$HOME/.zshrc" ;;
+            bash)
+                if [ -f "$HOME/.bashrc" ]; then
+                    PROFILE="$HOME/.bashrc"
+                elif [ -f "$HOME/.bash_profile" ]; then
+                    PROFILE="$HOME/.bash_profile"
+                fi
+                ;;
+            fish) PROFILE="$HOME/.config/fish/config.fish"; LINE="fish_add_path ${INSTALL_DIR}" ;;
+        esac
+
+        if [ -n "$PROFILE" ]; then
+            if ! grep -qF "$INSTALL_DIR" "$PROFILE" 2>/dev/null; then
+                printf '\n%s\n' "$LINE" >> "$PROFILE"
+                info "added ${INSTALL_DIR} to ${PROFILE}"
+                info "restart your shell or run:  ${BOLD}source ${PROFILE}${RESET}"
+            fi
+        else
+            warn "${INSTALL_DIR} is not in your \$PATH"
+            warn "add it with:  $LINE"
+        fi
         ;;
 esac
 
