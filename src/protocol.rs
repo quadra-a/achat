@@ -93,8 +93,12 @@ pub enum IpcRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[must_use = "IPC responses should be checked for errors"]
 pub enum IpcResponse {
-    /// Generic success, optionally carrying a message id.
-    Ok { id: Option<String> },
+    /// Generic success, optionally carrying a message id and/or a warning.
+    Ok {
+        id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warning: Option<String>,
+    },
     /// List of discovered agents.
     Agents(Vec<AgentInfo>),
     /// A batch of messages with pagination metadata.

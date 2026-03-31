@@ -201,7 +201,7 @@ fn messages_response(result: std::io::Result<(Vec<Message>, usize)>, label: &str
 
 fn handle_ipc(ctx: &IpcContext, req: IpcRequest) -> IpcResponse {
     match req {
-        IpcRequest::Ping => IpcResponse::Ok { id: None },
+        IpcRequest::Ping => IpcResponse::Ok { id: None, warning: None },
 
         IpcRequest::ListAgents => {
             let agents: Vec<AgentInfo> = ctx
@@ -215,9 +215,40 @@ fn handle_ipc(ctx: &IpcContext, req: IpcRequest) -> IpcResponse {
         }
 
         IpcRequest::Send { to, content } => {
+            let warning = {
+                let peers = ctx.peers.read().expect("lock poisoned");
+                match &to {
+                    Target::Direct(name) => {
+                        if !peers.contains_key(name) {
+                            Some(format!("agent '{}' is not online — message may be lost", name))
+                        } else {
+                            None
+                        }
+                    }
+                    Target::Group(group) => {
+                        let has_member = peers.values().any(|a| a.groups.contains(group));
+                        if !has_member {
+                            Some(format!(
+                                "no agents online in group '{g}' — message may be lost. \
+                                 Did you mean @{g} to send directly to an agent?",
+                                g = group
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    Target::Broadcast => {
+                        if peers.is_empty() {
+                            Some("no peers online — message may be lost".to_string())
+                        } else {
+                            None
+                        }
+                    }
+                }
+            };
             let id = uuid::Uuid::new_v4().to_string();
             let _ = ctx.send_tx.try_send((to, content));
-            IpcResponse::Ok { id: Some(id) }
+            IpcResponse::Ok { id: Some(id), warning }
         }
 
         IpcRequest::Inbox { limit } => {
@@ -237,14 +268,14 @@ fn handle_ipc(ctx: &IpcContext, req: IpcRequest) -> IpcResponse {
             ctx.modify_groups(|g| {
                 g.insert(group);
             });
-            IpcResponse::Ok { id: None }
+            IpcResponse::Ok { id: None, warning: None }
         }
 
         IpcRequest::LeaveGroup { group } => {
             ctx.modify_groups(|g| {
                 g.remove(&group);
             });
-            IpcResponse::Ok { id: None }
+            IpcResponse::Ok { id: None, warning: None }
         }
 
         IpcRequest::Status => {
@@ -261,7 +292,7 @@ fn handle_ipc(ctx: &IpcContext, req: IpcRequest) -> IpcResponse {
 
         IpcRequest::Shutdown => {
             let _ = ctx.shutdown_tx.try_send(());
-            IpcResponse::Ok { id: None }
+            IpcResponse::Ok { id: None, warning: None }
         }
 
         IpcRequest::Help => IpcResponse::Help {

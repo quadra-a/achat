@@ -55,7 +55,7 @@ mod tests {
         let sock_clone = sock.clone();
         let server_handle = tokio::spawn(async move {
             let _ = run_server(&sock_clone, |req| match req {
-                IpcRequest::Ping => IpcResponse::Ok { id: None },
+                IpcRequest::Ping => IpcResponse::Ok { id: None, warning: None },
                 IpcRequest::ListAgents
                 | IpcRequest::Send { .. }
                 | IpcRequest::Inbox { .. }
@@ -88,7 +88,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
         assert!(
-            matches!(resp, IpcResponse::Ok { id: None }),
+            matches!(resp, IpcResponse::Ok { id: None, warning: None }),
             "expected Ok {{ id: None }}, got {resp:?}"
         );
 

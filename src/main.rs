@@ -154,7 +154,10 @@ fn run(cli: &Cli) -> Result<()> {
             daemon::run(name);
             return Ok(());
         }
-        Commands::Ls => return cmd_ls(cli),
+        Commands::Ls => {
+            cmd_ls(cli);
+            return Ok(());
+        },
         Commands::Down
         | Commands::Send { .. }
         | Commands::Cast { .. }
@@ -230,7 +233,7 @@ fn cmd_down(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_ls(cli: &Cli) -> Result<()> {
+fn cmd_ls(cli: &Cli) {
     // Read directly from local registry — no daemon or identity needed.
     let registry_dir = storage::base_dir().join("registry");
     let mut agents: Vec<protocol::AgentInfo> = Vec::new();
@@ -265,7 +268,6 @@ fn cmd_ls(cli: &Cli) -> Result<()> {
             println!("{}", serde_json::to_string(a).unwrap());
         }
     }
-    Ok(())
 }
 
 fn cmd_send(name: &str, cli: &Cli, target: &str, message: &[String]) -> Result<()> {
@@ -281,10 +283,13 @@ fn cmd_send_or_cast(name: &str, cli: &Cli, target: Option<&str>, message: &[Stri
     };
     let is_broadcast = matches!(to, protocol::Target::Broadcast);
     let req = protocol::IpcRequest::Send { to, content };
-    let IpcResponse::Ok { id } = ipc_call(name, &req)? else {
+    let IpcResponse::Ok { id, warning } = ipc_call(name, &req)? else {
         bail!("unexpected response");
     };
     if cli.pretty {
+        if let Some(ref w) = warning {
+            eprintln!("warning: {w}");
+        }
         println!(
             "{}",
             if is_broadcast {
@@ -297,6 +302,9 @@ fn cmd_send_or_cast(name: &str, cli: &Cli, target: Option<&str>, message: &[Stri
         let mut resp = serde_json::json!({"ok": true});
         if let Some(id) = id {
             resp["id"] = id.into();
+        }
+        if let Some(ref w) = warning {
+            resp["warning"] = w.clone().into();
         }
         if cli.hint {
             let hint = if is_broadcast {
