@@ -226,6 +226,7 @@ fn cmd_down(name: &str) -> Result<()> {
     }
     let _ = ipc_call(name, &protocol::IpcRequest::Shutdown)?;
     println!("{}", serde_json::json!({"ok": true}));
+    eprintln!("warning: {name} is now offline and cannot receive messages. use `achat up {name}` to restart.");
     Ok(())
 }
 
