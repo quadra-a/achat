@@ -154,8 +154,8 @@ fn run(cli: &Cli) -> Result<()> {
             daemon::run(name);
             return Ok(());
         }
+        Commands::Ls => return cmd_ls(cli),
         Commands::Down
-        | Commands::Ls
         | Commands::Send { .. }
         | Commands::Cast { .. }
         | Commands::Inbox { .. }
@@ -169,7 +169,6 @@ fn run(cli: &Cli) -> Result<()> {
     let name = resolve_identity(cli.identity.as_deref())?;
     match &cli.command {
         Commands::Down => cmd_down(&name),
-        Commands::Ls => cmd_ls(&name, cli),
         Commands::Send { target, message } => cmd_send(&name, cli, target, message),
         Commands::Cast { message } => cmd_send_or_cast(&name, cli, None, message),
         Commands::Inbox { limit } => {
@@ -189,7 +188,9 @@ fn run(cli: &Cli) -> Result<()> {
         Commands::Join { group } => cmd_group(&name, cli, group, GroupAction::Join),
         Commands::Leave { group } => cmd_group(&name, cli, group, GroupAction::Leave),
         Commands::Status => cmd_status(&name, cli),
-        Commands::Up { .. } | Commands::HelpJson | Commands::Daemon { .. } => unreachable!(),
+        Commands::Up { .. } | Commands::Ls | Commands::HelpJson | Commands::Daemon { .. } => {
+            unreachable!()
+        }
     }
 }
 
@@ -228,10 +229,27 @@ fn cmd_down(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_ls(name: &str, cli: &Cli) -> Result<()> {
-    let IpcResponse::Agents(agents) = ipc_call(name, &protocol::IpcRequest::ListAgents)? else {
-        bail!("unexpected response");
-    };
+fn cmd_ls(cli: &Cli) -> Result<()> {
+    // Read directly from local registry — no daemon or identity needed.
+    let registry_dir = storage::base_dir().join("registry");
+    let mut agents: Vec<protocol::AgentInfo> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&registry_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(data) = std::fs::read_to_string(&path) {
+                if let Ok(info) = serde_json::from_str::<protocol::AgentInfo>(&data) {
+                    // Verify daemon is actually alive
+                    if sock_path(&info.name).exists() {
+                        agents.push(info);
+                    }
+                }
+            }
+        }
+    }
+    agents.sort_by(|a, b| a.name.cmp(&b.name));
     if cli.pretty {
         for a in &agents {
             let g = if a.groups.is_empty() {
