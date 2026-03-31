@@ -5,7 +5,7 @@
 //! Provides subcommands for starting/stopping daemons, sending messages,
 //! browsing inboxes, and managing group membership.
 
-use achat::{daemon, ipc, protocol, storage, util};
+use achat::{daemon, ipc, protocol, storage};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use protocol::IpcResponse;
@@ -14,12 +14,6 @@ use std::process::ExitCode;
 
 fn sock_path(name: &str) -> std::path::PathBuf {
     storage::agent_dir(name).join("daemon.sock")
-}
-
-/// Persist the current agent identity to `~/.achat/current`.
-fn set_current_identity(name: &str) {
-    let _ = std::fs::create_dir_all(storage::base_dir());
-    let _ = std::fs::write(storage::base_dir().join("current"), name);
 }
 
 /// Send IPC request, returning the response or an error.
@@ -31,13 +25,12 @@ fn ipc_call(name: &str, req: &protocol::IpcRequest) -> Result<IpcResponse> {
     Ok(resp)
 }
 
-/// Resolve identity: `--as` > `ACHAT_NAME` env > `~/.achat/current` > auto-detect.
+/// Resolve identity: `--as` flag > `ACHAT_NAME` env var. No fallback.
 ///
-/// When `safe` is true (for destructive commands like `down`), the `current`
-/// file and auto-detect are skipped — only explicit identity (`--as` flag or
-/// `ACHAT_NAME` env) is accepted. This prevents `achat down` in a random
-/// terminal from accidentally killing a daemon you didn't start.
-fn resolve_identity(explicit: Option<&str>, safe: bool) -> Result<String> {
+/// Every command must explicitly specify which agent it acts as. This avoids
+/// a shared `current` file that caused identity confusion when multiple agents
+/// run on the same machine.
+fn resolve_identity(explicit: Option<&str>) -> Result<String> {
     if let Some(name) = explicit {
         return Ok(name.to_string());
     }
@@ -46,47 +39,9 @@ fn resolve_identity(explicit: Option<&str>, safe: bool) -> Result<String> {
             return Ok(name);
         }
     }
-    if safe {
-        bail!("'down' requires explicit identity to avoid killing another agent's daemon.\n  use: achat --as <name> down\n  tip: you can start your own daemon without stopping others: achat up <your-name>");
-    }
-    let current_file = storage::base_dir().join("current");
-    if let Ok(name) = std::fs::read_to_string(&current_file) {
-        let name = name.trim().to_string();
-        if !name.is_empty() && daemon_alive(&name) {
-            return Ok(name);
-        }
-    }
-    let alive = list_alive_daemons();
-    match alive.len() {
-        1 => Ok(alive.into_iter().next().unwrap()),
-        n if n > 1 => bail!(
-            "multiple daemons running ({})\n  use: achat attach <name>",
-            alive.join(", ")
-        ),
-        _ => bail!("no daemon running. use: achat up <name>"),
-    }
-}
-
-fn daemon_alive(name: &str) -> bool {
-    let pid_file = storage::agent_dir(name).join("daemon.pid");
-    std::fs::read_to_string(&pid_file)
-        .ok()
-        .and_then(|s| s.trim().parse::<i32>().ok())
-        .is_some_and(util::is_process_alive)
-}
-
-fn list_alive_daemons() -> Vec<String> {
-    let agents_dir = storage::base_dir().join("agents");
-    let Ok(entries) = std::fs::read_dir(&agents_dir) else {
-        return vec![];
-    };
-    entries
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_str()?.to_string();
-            daemon_alive(&name).then_some(name)
-        })
-        .collect()
+    bail!(
+        "identity required.\n  use: achat --as <name> <command>\n  or:  export ACHAT_NAME=<name>"
+    );
 }
 
 fn read_content(message: &[String]) -> Result<String> {
@@ -127,8 +82,6 @@ enum Commands {
     Up { name: Option<String> },
     /// Stop daemon
     Down,
-    /// Rebind identity to a running daemon
-    Attach { name: String },
     /// List online agents
     Ls,
     /// Send message to @agent or group
@@ -189,7 +142,6 @@ fn run(cli: &Cli) -> Result<()> {
             })?;
             return cmd_up(name);
         }
-        Commands::Attach { name } => return cmd_attach(name),
         Commands::HelpJson => {
             println!(
                 "{}",
@@ -214,9 +166,7 @@ fn run(cli: &Cli) -> Result<()> {
         | Commands::Status => {}
     }
     // Everything else requires a resolved identity.
-    // `down` is destructive — refuse auto-detect to prevent killing someone else's daemon.
-    let safe = matches!(cli.command, Commands::Down);
-    let name = resolve_identity(cli.identity.as_deref(), safe)?;
+    let name = resolve_identity(cli.identity.as_deref())?;
     match &cli.command {
         Commands::Down => cmd_down(&name),
         Commands::Ls => cmd_ls(&name, cli),
@@ -239,17 +189,14 @@ fn run(cli: &Cli) -> Result<()> {
         Commands::Join { group } => cmd_group(&name, cli, group, GroupAction::Join),
         Commands::Leave { group } => cmd_group(&name, cli, group, GroupAction::Leave),
         Commands::Status => cmd_status(&name, cli),
-        Commands::Up { .. }
-        | Commands::Attach { .. }
-        | Commands::HelpJson
-        | Commands::Daemon { .. } => unreachable!(),
+        Commands::Up { .. } | Commands::HelpJson | Commands::Daemon { .. } => unreachable!(),
     }
 }
 
 // --- Commands ---
 
 fn cmd_up(name: &str) -> Result<()> {
-    if daemon_alive(name) {
+    if sock_path(name).exists() {
         bail!("{name} is already running");
     }
     let pid_file = storage::agent_dir(name).join("daemon.pid");
@@ -268,7 +215,6 @@ fn cmd_up(name: &str) -> Result<()> {
     if !sock_path(name).exists() {
         bail!("daemon failed to start. check ~/.achat/agents/{name}/daemon.log");
     }
-    set_current_identity(name);
     println!("{}", serde_json::json!({"ok": true, "name": name}));
     Ok(())
 }
@@ -278,23 +224,7 @@ fn cmd_down(name: &str) -> Result<()> {
         bail!("{name} is not running");
     }
     let _ = ipc_call(name, &protocol::IpcRequest::Shutdown)?;
-    let current_file = storage::base_dir().join("current");
-    if std::fs::read_to_string(&current_file)
-        .map(|s| s.trim() == name)
-        .unwrap_or(false)
-    {
-        let _ = std::fs::remove_file(&current_file);
-    }
     println!("{}", serde_json::json!({"ok": true}));
-    Ok(())
-}
-
-fn cmd_attach(name: &str) -> Result<()> {
-    if !daemon_alive(name) {
-        bail!("no daemon running for {name}");
-    }
-    set_current_identity(name);
-    println!("{}", serde_json::json!({"ok": true, "name": name}));
     Ok(())
 }
 

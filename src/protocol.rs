@@ -223,11 +223,6 @@ pub fn command_list() -> Vec<CommandInfo> {
             desc: "Stop daemon".into(),
         },
         CommandInfo {
-            name: "attach".into(),
-            args: "<name>".into(),
-            desc: "Rebind identity to a running daemon".into(),
-        },
-        CommandInfo {
             name: "send".into(),
             args: "<target> [message]".into(),
             desc: "Send to @agent or group. Reads stdin if no message arg".into(),
